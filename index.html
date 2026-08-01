@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0d10">
+  <meta name="description" content="Entreno: registro local de entrenamientos de hipertrofia.">
+  <title>Entreno</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app" class="app-shell">
+    <header class="topbar">
+      <button id="back-button" class="icon-button hidden" type="button" aria-label="Volver">←</button>
+      <div><p class="eyebrow" id="header-kicker">TU RUTINA</p><h1 id="page-title">ENTRENO</h1></div>
+      <button id="rir-info" class="icon-button" type="button" aria-label="Qué significa RIR">i</button>
+    </header>
+
+    <main id="main-content" tabindex="-1"></main>
+
+    <nav class="bottom-nav" aria-label="Navegación principal">
+      <button type="button" data-route="home" class="active"><span aria-hidden="true">◆</span>Entreno</button>
+      <button type="button" data-route="history"><span aria-hidden="true">◷</span>Historial</button>
+      <button type="button" data-route="settings"><span aria-hidden="true">⚙</span>Ajustes</button>
+    </nav>
+  </div>
+
+  <div id="timer-dock" class="timer-dock hidden" role="region" aria-label="Temporizador de descanso"></div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <dialog id="modal">
+    <form method="dialog" class="modal-card">
+      <h2 id="modal-title"></h2>
+      <div id="modal-body"></div>
+      <div id="modal-actions" class="modal-actions"></div>
+    </form>
+  </dialog>
+  <input id="import-input" type="file" accept="application/json,.json" hidden>
+  <script src="app.js"></script>
+</body>
+</html>
