@@ -4,46 +4,46 @@
 const workoutProgram = {
   days: [
     { id: "push", number: 1, name: "PUSH", group: "upper", subtitle: "Pecho · hombro · tríceps", exercises: [
-      ["press-inclinado", "Press inclinado en multipower o barra", 3, 6, 10, ["2", "1", "1"], 180],
-      ["press-plano-mancuernas", "Press plano con mancuernas o máquina", 2, 8, 12, ["2", "1"], 150],
-      ["press-hombro", "Press de hombro con mancuernas o máquina", 2, 8, 12, ["2", "1"], 150],
-      ["aperturas-polea", "Aperturas en polea", 2, 10, 15, ["1", "0-1"], 90],
-      ["elevaciones-laterales-polea", "Elevaciones laterales en polea o mancuerna", 3, 12, 20, ["2", "1", "0-1"], 90],
-      ["extension-triceps-cabeza", "Extensión de tríceps sobre la cabeza", 2, 10, 15, ["1", "0-1"], 90],
-      ["jalon-triceps", "Jalón de tríceps", 2, 10, 15, ["1", "0-1"], 90]
+      ["press-inclinado", "Press inclinado en multipower o barra", 3, 6, 10, ["2", "1", "1"], 180, "", 180],
+      ["press-plano-mancuernas", "Press plano con mancuernas o máquina", 2, 8, 12, ["2", "1"], 150, "", 180],
+      ["press-hombro", "Press de hombro con mancuernas o máquina", 2, 8, 12, ["2", "1"], 150, "", 120],
+      ["aperturas-polea", "Aperturas en polea", 2, 10, 15, ["1", "0-1"], 90, "", 90],
+      ["elevaciones-laterales-polea", "Elevaciones laterales en polea o mancuerna", 3, 12, 20, ["2", "1", "0-1"], 90, "", 90],
+      ["extension-triceps-cabeza", "Extensión de tríceps sobre la cabeza", 2, 10, 15, ["1", "0-1"], 90, "", 90],
+      ["jalon-triceps", "Jalón de tríceps", 2, 10, 15, ["1", "0-1"], 90, "", 90]
     ]},
     { id: "pull", number: 2, name: "PULL", group: "upper", subtitle: "Espalda · bíceps", exercises: [
-      ["dominadas-jalon", "Dominadas o jalón al pecho", 3, 6, 10, ["2", "1", "1"], 180],
-      ["remo-pecho", "Remo con pecho apoyado o T-Bar", 3, 8, 12, ["2", "1", "1"], 150],
-      ["jalon-unilateral", "Jalón unilateral", 2, 10, 15, ["1-2", "1"], 120],
-      ["pajaros", "Pájaros o reverse pec deck", 3, 12, 20, ["2", "1", "0-1"], 90],
-      ["curl-predicador", "Curl predicador", 2, 8, 12, ["1", "0-1"], 120],
-      ["curl-inclinado", "Curl inclinado con mancuernas", 2, 10, 15, ["1", "0-1"], 90]
+      ["dominadas-jalon", "Dominadas o jalón al pecho", 3, 6, 10, ["2", "1", "1"], 180, "", 180],
+      ["remo-pecho", "Remo con pecho apoyado o T-Bar", 3, 8, 12, ["2", "1", "1"], 150, "", 150],
+      ["jalon-unilateral", "Jalón unilateral", 2, 10, 15, ["1-2", "1"], 120, "", 120],
+      ["pajaros", "Pájaros o reverse pec deck", 3, 12, 20, ["2", "1", "0-1"], 90, "", 120],
+      ["curl-predicador", "Curl predicador", 2, 8, 12, ["1", "0-1"], 120, "", 120],
+      ["curl-inclinado", "Curl inclinado con mancuernas", 2, 10, 15, ["1", "0-1"], 90, "", 90]
     ]},
     { id: "pierna-a", number: 3, name: "PIERNA A", group: "lower", subtitle: "CUÁDRICEPS", exercises: [
-      ["hack-squat", "Hack squat o sentadilla", 3, 6, 10, ["2", "1", "1"], 180],
-      ["prensa", "Prensa", 3, 10, 15, ["2", "1", "1"], 180],
-      ["extension-cuadriceps", "Extensión de cuádriceps", 2, 12, 15, ["1", "0-1"], 120],
-      ["curl-femoral-a", "Curl femoral", 3, 8, 12, ["2", "1", "0-1"], 120],
-      ["gemelo-a", "Gemelo", 3, 8, 15, ["2", "1", "0-1"], 120],
-      ["abdominal", "Abdominal", 3, 10, 20, ["1-2", "1-2", "1-2"], 90]
+      ["hack-squat", "Hack squat o sentadilla", 3, 6, 10, ["2", "1", "1"], 180, "", 210],
+      ["prensa", "Prensa", 3, 10, 15, ["2", "1", "1"], 180, "", 180],
+      ["extension-cuadriceps", "Extensión de cuádriceps", 2, 12, 15, ["1", "0-1"], 120, "", 120],
+      ["curl-femoral-a", "Curl femoral", 3, 8, 12, ["2", "1", "0-1"], 120, "", 120],
+      ["gemelo-a", "Gemelo", 3, 8, 15, ["2", "1", "0-1"], 120, "", 90],
+      ["abdominal", "Abdominal", 3, 10, 20, ["1-2", "1-2", "1-2"], 90, "", 90]
     ]},
     { id: "upper", number: 4, name: "UPPER", group: "upper", subtitle: "TORSO COMPLETO", exercises: [
-      ["press-plano-barra", "Press plano con barra o máquina", 3, 6, 10, ["2", "1", "1"], 180],
-      ["jalon-neutro", "Jalón neutro o al pecho", 3, 8, 12, ["2", "1", "1"], 150],
-      ["press-inclinado-mancuernas", "Press inclinado con mancuernas", 2, 8, 12, ["1-2", "1"], 150],
-      ["remo-unilateral", "Remo unilateral o máquina", 2, 10, 15, ["1-2", "1"], 120],
-      ["elevaciones-laterales", "Elevaciones laterales", 3, 12, 20, ["2", "1", "0-1"], 90],
-      ["curl-cable", "Curl de bíceps en cable o mancuerna", 2, 10, 15, ["1", "0-1"], 90],
-      ["extension-triceps-polea", "Extensión de tríceps en polea", 2, 10, 15, ["1", "0-1"], 90]
+      ["press-plano-barra", "Press plano con barra o máquina", 3, 6, 10, ["2", "1", "1"], 180, "", 150],
+      ["jalon-neutro", "Jalón neutro o al pecho", 3, 8, 12, ["2", "1", "1"], 150, "", 150],
+      ["press-inclinado-mancuernas", "Press inclinado con mancuernas", 2, 8, 12, ["1-2", "1"], 150, "", 120],
+      ["remo-unilateral", "Remo unilateral o máquina", 2, 10, 15, ["1-2", "1"], 120, "", 90],
+      ["elevaciones-laterales", "Elevaciones laterales", 3, 12, 20, ["2", "1", "0-1"], 90, "", 90],
+      ["curl-cable", "Curl de bíceps en cable o mancuerna", 2, 10, 15, ["1", "0-1"], 90, "", 90],
+      ["extension-triceps-polea", "Extensión de tríceps en polea", 2, 10, 15, ["1", "0-1"], 90, "", 90]
     ]},
     { id: "pierna-b", number: 5, name: "PIERNA B", group: "lower", subtitle: "FEMORAL · GLÚTEO", exercises: [
-      ["peso-muerto-rumano", "Peso muerto rumano", 3, 6, 10, ["2", "1", "1"], 180],
-      ["curl-femoral-b", "Curl femoral", 3, 8, 12, ["2", "1", "0-1"], 120],
-      ["sentadilla-bulgara", "Sentadilla búlgara", 3, 8, 12, ["2", "1", "1"], 180, "Repeticiones por pierna"],
-      ["prensa-pies-altos", "Prensa con pies medios/altos", 2, 10, 15, ["2", "1"], 150],
-      ["gemelo-b", "Gemelo", 3, 10, 15, ["2", "1", "0-1"], 120],
-      ["aductor", "Aductor en máquina", 2, 10, 15, ["1", "0-1"], 90]
+      ["peso-muerto-rumano", "Peso muerto rumano", 3, 6, 10, ["2", "1", "1"], 180, "", 180],
+      ["curl-femoral-b", "Curl femoral", 3, 8, 12, ["2", "1", "0-1"], 120, "", 180],
+      ["sentadilla-bulgara", "Sentadilla búlgara", 3, 8, 12, ["2", "1", "1"], 180, "Repeticiones por pierna", 210],
+      ["prensa-pies-altos", "Prensa con pies medios/altos", 2, 10, 15, ["2", "1"], 150, "", 120],
+      ["gemelo-b", "Gemelo", 3, 10, 15, ["2", "1", "0-1"], 120, "", 90],
+      ["aductor", "Aductor en máquina", 2, 10, 15, ["1", "0-1"], 90, "", 90]
     ]}
   ]
 };
@@ -107,7 +107,7 @@ function normalizeSession(session, active) {
   clean.exercises.forEach(exercise => {
     const programExercise = programDay?.exercises.find(item => item.id === exercise.id);
     exercise.restSeconds = validPositive(exercise.restSeconds, programExercise?.restSeconds || 90);
-    exercise.transitionRestSeconds = validPositive(exercise.transitionRestSeconds, programExercise?.transitionRestSeconds || exercise.restSeconds);
+    exercise.transitionRestSeconds = validPositive(exercise.transitionRestSeconds, exercise.restSeconds);
     exercise.status = inferredExerciseStatus(exercise);
   });
   if (active) {
