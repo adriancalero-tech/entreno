@@ -105,6 +105,7 @@ let state = storage.load();
 let route = state.activeSession ? "session" : "home";
 let selectedDayId = null;
 let timerInterval = null;
+let timerAudioContext = null;
 let toastTimeout = null;
 const main = document.querySelector("#main-content");
 const timerDock = document.querySelector("#timer-dock");
@@ -128,7 +129,7 @@ function createSession(day) {
     group: day.group, startedAt: new Date().toISOString(), finishedAt: null, currentExercise: 0,
     exercises: day.exercises.map(ex => ({ id: ex.id, name: ex.name, minReps: ex.minReps, maxReps: ex.maxReps, restSeconds: ex.restSeconds, note: ex.note,
       sets: Array.from({ length: ex.setCount }, (_, i) => ({ number: i + 1, weight: "", reps: "", targetRir: ex.rir[i], actualRir: "", completed: false, completedAt: null })) })),
-    timer: { status: "idle", durationMs: 0, remainingMs: 0, endTimestamp: null, exerciseIndex: null }
+    timer: { status: "idle", kind: null, durationMs: 0, remainingMs: 0, endTimestamp: null, exerciseIndex: null, nextExerciseName: "" }
   };
 }
 
@@ -227,6 +228,7 @@ function renderHistory() {
 function renderSettings() {
   setHeader("AJUSTES", "PREFERENCIAS"); timerDock.classList.add("hidden");
   main.innerHTML = `<section class="panel"><label class="toggle"><span><strong>Sonido</strong><small class="muted"> Aviso corto al acabar el descanso</small></span><input type="checkbox" data-setting="sound" ${state.settings.sound ? "checked" : ""}></label>
+    ${state.settings.sound ? `<button class="button secondary full" data-action="test-sound">PROBAR SONIDO</button>` : ""}
     <label class="toggle"><span><strong>Vibración</strong><small class="muted"> Si el dispositivo lo permite</small></span><input type="checkbox" data-setting="vibration" ${state.settings.vibration ? "checked" : ""}></label></section>
     <section class="panel"><h2>Doble progresión</h2><div class="set-inputs"><label class="input-suffix">Incremento tren superior<input type="number" inputmode="decimal" min="0.1" step="0.5" data-setting="upperIncrement" value="${state.settings.upperIncrement}"><span>kg</span></label><label class="input-suffix">Incremento tren inferior<input type="number" inputmode="decimal" min="0.1" step="0.5" data-setting="lowerIncrement" value="${state.settings.lowerIncrement}"><span>kg</span></label></div></section>
     <section class="panel settings-actions"><h2>Tus datos</h2><button class="button secondary" data-action="export">EXPORTAR DATOS</button><button class="button secondary" data-action="import">IMPORTAR DATOS</button><button class="button danger" data-action="clear-data">BORRAR TODOS LOS DATOS</button><p class="small muted">Los datos nunca salen de este navegador salvo cuando tú exportas una copia.</p></section>`;
@@ -251,15 +253,22 @@ function toggleSet(exIndex, setIndex) {
   set.completed = !set.completed; set.completedAt = set.completed ? new Date().toISOString() : null;
   if (set.completed) {
     const exerciseDone = ex.sets.every(x=>x.completed);
-    if (exerciseDone) { stopTimer(true); const next = s.exercises.findIndex((e,i)=>i>exIndex && !e.sets.every(x=>x.completed)); s.currentExercise = next < 0 ? exIndex : next; }
-    else startTimer(ex.restSeconds, exIndex);
+    const next = exerciseDone ? s.exercises.findIndex((e,i)=>i>exIndex && !e.sets.every(x=>x.completed)) : -1;
+    if (exerciseDone && next < 0) {
+      s.currentExercise = exIndex;
+      stopTimer(false);
+    } else {
+      if (exerciseDone) s.currentExercise = next;
+      if (state.settings.sound) void armTimerAudio();
+      startTimer(ex.restSeconds, exIndex, exerciseDone ? "between-exercises" : "between-sets", exerciseDone ? s.exercises[next].name : "");
+    }
   } else { s.currentExercise = exIndex; }
   persist(); renderSession();
 }
 
-function startTimer(seconds, exerciseIndex) {
+function startTimer(seconds, exerciseIndex, kind = "between-sets", nextExerciseName = "") {
   const timer = state.activeSession.timer;
-  timer.status = "running"; timer.durationMs = seconds * 1000; timer.remainingMs = timer.durationMs; timer.endTimestamp = Date.now() + timer.remainingMs; timer.exerciseIndex = exerciseIndex; persist();
+  timer.status = "running"; timer.kind = kind; timer.durationMs = seconds * 1000; timer.remainingMs = timer.durationMs; timer.endTimestamp = Date.now() + timer.remainingMs; timer.exerciseIndex = exerciseIndex; timer.nextExerciseName = nextExerciseName; persist();
 }
 function timerRemaining(timer) { return timer.status === "running" && timer.endTimestamp ? Math.max(0, timer.endTimestamp - Date.now()) : Math.max(0, timer.remainingMs || 0); }
 function adjustTimer(deltaMs) {
@@ -269,7 +278,7 @@ function adjustTimer(deltaMs) {
 function pauseTimer() { const t=state.activeSession?.timer; if (!t||t.status!=="running") return; t.remainingMs=timerRemaining(t);t.endTimestamp=null;t.status="paused";persist();renderTimer(); }
 function resumeTimer() { const t=state.activeSession?.timer; if (!t||t.status!=="paused") return;t.status="running";t.endTimestamp=Date.now()+t.remainingMs;persist();renderTimer(); }
 function resetTimer() { const t=state.activeSession?.timer;if(!t||t.status==="idle")return;t.remainingMs=t.durationMs;t.status="running";t.endTimestamp=Date.now()+t.durationMs;persist();renderTimer(); }
-function stopTimer(persistChange=false) { clearInterval(timerInterval);timerInterval=null;const t=state.activeSession?.timer;if(t){t.status="idle";t.remainingMs=0;t.endTimestamp=null;t.exerciseIndex=null;if(persistChange)persist();}timerDock.classList.add("hidden"); }
+function stopTimer(persistChange=false) { clearInterval(timerInterval);timerInterval=null;releaseTimerAudio();const t=state.activeSession?.timer;if(t){t.status="idle";t.kind=null;t.remainingMs=0;t.endTimestamp=null;t.exerciseIndex=null;t.nextExerciseName="";if(persistChange)persist();}timerDock.classList.add("hidden"); }
 function stopTimerUiOnly() { clearInterval(timerInterval); timerInterval=null; }
 function renderTimer() {
   clearInterval(timerInterval); timerInterval=null; const t=state.activeSession?.timer;
@@ -280,16 +289,64 @@ function renderTimer() {
 function tickTimer() {
   const t=state.activeSession?.timer;if(!t||t.status==="idle")return;
   const remaining=timerRemaining(t), seconds=Math.ceil(remaining/1000), finished=remaining<=0;
+  const kind=t.kind==="between-exercises"?"DESCANSO ENTRE EJERCICIOS":"DESCANSO ENTRE SERIES";
+  const next=t.kind==="between-exercises"&&t.nextExerciseName?`<p class="timer-next"><span>SIGUIENTE</span>${escapeHtml(t.nextExerciseName)}</p>`:"";
   timerDock.classList.toggle("finished",finished);
-  timerDock.innerHTML=`<div class="timer-main"><div><span class="eyebrow">${finished ? "DESCANSO TERMINADO" : t.status==="paused" ? "EN PAUSA" : "DESCANSO"}</span><div class="timer-time">${formatTime(seconds)}</div></div><button class="button" data-action="${t.status==="paused" ? "timer-resume" : "timer-pause"}" ${finished ? "disabled" : ""}>${t.status==="paused" ? "REANUDAR" : "PAUSAR"}</button></div><div class="timer-controls"><button data-action="timer-minus">−30 s</button><button data-action="timer-plus">+30 s</button><button data-action="timer-reset">REINICIAR</button><button data-action="timer-skip">OMITIR</button></div>`;
+  timerDock.innerHTML=`<div class="timer-main"><div><span class="eyebrow">${kind}</span><div class="timer-time">${formatTime(seconds)}</div>${t.status==="paused"?`<span class="badge">EN PAUSA</span>`:""}${finished?`<span class="badge accent">TERMINADO</span>`:""}</div><button class="button" data-action="${t.status==="paused" ? "timer-resume" : "timer-pause"}" ${finished ? "disabled" : ""}>${t.status==="paused" ? "REANUDAR" : "PAUSAR"}</button></div>${next}<div class="timer-controls"><button data-action="timer-minus">−30 s</button><button data-action="timer-plus">+30 s</button><button data-action="timer-reset">REINICIAR</button><button data-action="timer-skip">OMITIR</button></div>`;
   if(finished&&t.status==="running"){t.status="finished";t.remainingMs=0;t.endTimestamp=null;clearInterval(timerInterval);timerInterval=null;persist();signalTimerEnd();}
 }
-function signalTimerEnd(){if(state.settings.vibration&&navigator.vibrate)navigator.vibrate([180,80,180]);if(state.settings.sound)playBeep();}
-function playBeep(){try{const Ctx=window.AudioContext||window.webkitAudioContext;if(!Ctx)return;const ctx=new Ctx(),osc=ctx.createOscillator(),gain=ctx.createGain();osc.frequency.value=880;gain.gain.setValueAtTime(.12,ctx.currentTime);gain.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+.18);osc.connect(gain).connect(ctx.destination);osc.start();osc.stop(ctx.currentTime+.18);osc.onended=()=>ctx.close();}catch(error){console.warn("El navegador bloqueó el aviso sonoro:",error);}}
+function signalTimerEnd(){if(state.settings.vibration&&navigator.vibrate)navigator.vibrate([180,80,180]);if(state.settings.sound)void playTimerAlert(true);else releaseTimerAudio();}
+
+async function armTimerAudio(){
+  if(!state.settings.sound){releaseTimerAudio();return false;}
+  const Ctx=window.AudioContext||window.webkitAudioContext;
+  if(!Ctx){console.warn("Web Audio no está disponible; el aviso visual seguirá funcionando.");return false;}
+  try{
+    if(!timerAudioContext||timerAudioContext.state==="closed")timerAudioContext=new Ctx();
+    if(timerAudioContext.state==="suspended"||timerAudioContext.state==="interrupted")await timerAudioContext.resume();
+    return timerAudioContext.state==="running";
+  }catch(error){console.warn("No se pudo preparar el audio del temporizador:",error);return false;}
+}
+
+function releaseTimerAudio(){
+  const context=timerAudioContext;timerAudioContext=null;
+  if(context&&context.state!=="closed"){
+    try{context.close().catch(error=>console.warn("No se pudo liberar el audio del temporizador:",error));}
+    catch(error){console.warn("No se pudo liberar el audio del temporizador:",error);}
+  }
+}
+
+async function playTimerAlert(releaseAfter=true){
+  const context=timerAudioContext;
+  if(!context){console.warn("El aviso sonoro no estaba preparado por una interacción del usuario.");return;}
+  try{
+    if(context.state==="suspended"||context.state==="interrupted")await context.resume();
+    if(context.state!=="running")throw new Error(`AudioContext en estado ${context.state}`);
+    const master=context.createGain();master.gain.value=1;master.connect(context.destination);
+    const starts=[0,.28,.56],now=context.currentTime+.02;
+    let cleaned=false;
+    const cleanup=()=>{if(cleaned)return;cleaned=true;master.disconnect();if(releaseAfter)releaseTimerAudio();};
+    starts.forEach((offset,index)=>{
+      const oscillator=context.createOscillator(),gain=context.createGain(),start=now+offset,end=start+.16;
+      oscillator.type="sine";oscillator.frequency.value=1050;
+      gain.gain.setValueAtTime(.0001,start);gain.gain.exponentialRampToValueAtTime(.28,start+.018);gain.gain.setValueAtTime(.28,start+.11);gain.gain.exponentialRampToValueAtTime(.0001,end);
+      oscillator.connect(gain).connect(master);oscillator.start(start);oscillator.stop(end+.01);
+      if(index===starts.length-1)oscillator.onended=cleanup;
+    });
+    setTimeout(cleanup,1200);
+  }catch(error){console.warn("No se pudo reproducir el aviso sonoro:",error);if(releaseAfter)releaseTimerAudio();}
+}
+
+function testTimerSound(){
+  if(!state.settings.sound)return;
+  const timerStatus=state.activeSession?.timer?.status;
+  const keepArmed=timerStatus==="running"||timerStatus==="paused";
+  void armTimerAudio().then(armed=>{if(armed)void playTimerAlert(!keepArmed);});
+}
 
 function finishSession() {
   const s=state.activeSession;if(!s)return;
-  const execute=()=>{if(!state.activeSession||state.history.some(x=>x.id===s.id))return;s.finishedAt=new Date().toISOString();state.history.unshift(structuredClone(s));state.activeSession=null;stopTimerUiOnly();persist();route="history";render();notify("Entrenamiento guardado");};
+  const execute=()=>{if(!state.activeSession||state.history.some(x=>x.id===s.id))return;stopTimer(false);s.finishedAt=new Date().toISOString();state.history.unshift(structuredClone(s));state.activeSession=null;persist();route="history";render();notify("Entrenamiento guardado");};
   if(!sessionComplete(s)) showModal("¿Finalizar antes de tiempo?","Quedan series pendientes. Se guardará lo completado hasta ahora.",[{label:"CANCELAR"},{label:"FINALIZAR",className:"danger",action:execute}]); else execute();
 }
 
@@ -310,13 +367,14 @@ document.addEventListener("click", event => {
   else if(action==="toggle-set")toggleSet(+button.dataset.exercise,+button.dataset.set);
   else if(action==="continue"){state.activeSession.currentExercise=+button.dataset.exercise;persist();renderSession();document.querySelector(`[data-exercise="${button.dataset.exercise}"]`)?.scrollIntoView({behavior:"smooth"});}
   else if(action==="finish-session")finishSession();else if(action==="timer-pause")pauseTimer();else if(action==="timer-resume")resumeTimer();else if(action==="timer-plus")adjustTimer(30000);else if(action==="timer-minus")adjustTimer(-30000);else if(action==="timer-reset")resetTimer();else if(action==="timer-skip")stopTimer(true);
+  else if(action==="test-sound")testTimerSound();
   else if(action==="export")exportData();else if(action==="import")document.querySelector("#import-input").click();
-  else if(action==="clear-data")showModal("Borrar todos los datos","Se eliminarán historial, sesión activa y ajustes. Esta acción no se puede deshacer.",[{label:"CANCELAR"},{label:"BORRAR TODO",className:"danger",action:()=>{stopTimerUiOnly();storage.clear();state=defaults();route="settings";render();notify("Todos los datos se han borrado");}}]);
+  else if(action==="clear-data")showModal("Borrar todos los datos","Se eliminarán historial, sesión activa y ajustes. Esta acción no se puede deshacer.",[{label:"CANCELAR"},{label:"BORRAR TODO",className:"danger",action:()=>{if(state.activeSession)stopTimer(false);else releaseTimerAudio();storage.clear();state=defaults();route="settings";render();notify("Todos los datos se han borrado");}}]);
 });
 
 document.addEventListener("change", event => {
   const el=event.target;if(el.matches("input[data-field]"))updateInput(el);
-  if(el.matches("input[data-setting]")){const key=el.dataset.setting;if(el.type==="checkbox")state.settings[key]=el.checked;else state.settings[key]=validPositive(el.value,state.settings[key]);persist();if(el.type!=="checkbox")el.value=state.settings[key];}
+  if(el.matches("input[data-setting]")){const key=el.dataset.setting;if(el.type==="checkbox")state.settings[key]=el.checked;else state.settings[key]=validPositive(el.value,state.settings[key]);if(key==="sound"&&!state.settings.sound)releaseTimerAudio();persist();if(el.type!=="checkbox")el.value=state.settings[key];if(key==="sound")renderSettings();}
   if(el.id==="import-input"&&el.files[0]){importData(el.files[0]);el.value="";}
 });
 document.addEventListener("input",event=>{if(event.target.matches("input[data-field]"))updateInput(event.target);});
