@@ -1,6 +1,6 @@
 # Entreno
 
-Entreno es una aplicación web móvil, local y sin backend para registrar una rutina de hipertrofia de cinco días. Permite recuperar una sesión en curso, controlar descansos, consultar el historial, recibir sugerencias de doble progresión y exportar o importar todos los datos.
+Entreno es una aplicación web móvil, local y sin backend para registrar una rutina de hipertrofia de cinco días. Permite recuperar una sesión en curso, controlar descansos, consultar y editar el historial, omitir ejercicios o aproximaciones, recibir sugerencias de doble progresión y exportar o importar todos los datos.
 
 ## Ejecutar localmente
 
@@ -24,8 +24,19 @@ En GitHub abre **Settings → Pages**, elige **Deploy from a branch**, seleccion
 
 ## Rutina
 
-La rutina completa está centralizada al principio de `app.js` en `workoutProgram`. Para editar días, ejercicios, series, RIR o descansos, modifica exclusivamente esa estructura.
+La rutina completa está centralizada al principio de `app.js` en `workoutProgram`. Cada ejercicio diferencia formalmente:
+
+- `warmupSets`: series de aproximación con carga orientativa, repeticiones y descanso propios. Se registran, pero no cuentan como volumen efectivo ni intervienen en la doble progresión.
+- `workingSets`: series efectivas con rango de repeticiones y RIR objetivo. Son las únicas que cuentan en el resumen de la sesión y en las recomendaciones de carga.
+
+Para cambiar aproximaciones o series efectivas, edita sus arrays correspondientes dentro de `workoutProgram`; los descansos entre series y entre ejercicios siguen en `restSeconds` y `transitionRestSeconds`.
+
+## Microciclo recomendado
+
+La distribución es un microciclo flexible de ocho días: **Push → Pull → Pierna A → Descanso → Upper → Descanso → Pierna B → Descanso**. Es una recomendación informativa; la aplicación permite comenzar cualquier día cuando no hay otra sesión activa.
 
 ## Datos
 
 Todos los datos se guardan únicamente en `localStorage` del navegador. No se usan analytics, cookies, servidores externos ni trackers. Desde Ajustes puedes exportar una copia JSON, restaurarla o borrar todos los datos.
+
+El formato actual es `schemaVersion: 3`. Al cargar o importar una copia V1/V2, sus series existentes se migran a `workingSets` y se añade un array `warmupSets` vacío. Así se conserva el historial y una posible sesión activa sin inventar aproximaciones antiguas.
