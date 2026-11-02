@@ -7,8 +7,9 @@ import { pathToFileURL } from "node:url";
 const entry = process.env.PLAYWRIGHT_ENTRY;
 const { chromium } = await import(entry ? pathToFileURL(entry).href : "playwright-core");
 const files = new Map([["/", ["index.html","text/html"]], ["/app.js", ["app.js","text/javascript"]], ["/styles.css", ["styles.css","text/css"]]]);
+for (const file of ["insights.js","views.js"]) files.set("/"+file,[file,"text/javascript"]);
 const server = createServer(async (req, res) => {
-  const file = files.get(req.url);
+  const file = files.get(req.url.split("?")[0]);
   if (!file) { res.writeHead(req.url === "/favicon.ico" ? 204 : 404); res.end(); return; }
   try {
     const bytes = await readFile(new URL(file[0], import.meta.url));
@@ -169,6 +170,72 @@ async function planningScenario(browser, width, height) {
   } finally { await context.close(); }
 }
 
+async function adaptiveScenario(browser,width,height) {
+  const mobile=width<600, context=await browser.newContext({viewport:{width,height},hasTouch:mobile,isMobile:mobile,timezoneId:"America/New_York"});
+  try {
+    const page=await context.newPage(); page.setDefaultTimeout(6000);
+    const errors=[];page.on("pageerror",e=>errors.push(e.message));page.on("console",m=>{if (["error","warning"].includes(m.type())) errors.push(m.text());});
+    await page.clock.setFixedTime(new Date("2026-10-23T22:30:00Z")); // Ya es sábado 24 en Madrid.
+    const press=async name=>{const btn=page.getByRole("button",{name,exact:true});if(mobile) await btn.tap();else await btn.click();};
+    const state=()=>page.evaluate(()=>JSON.parse(localStorage.getItem("entreno.data")));
+    const noOverflow=async()=>assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+    const history=["22","20","15"].map((d,i)=>({id:"seed-"+d,dayId:i?"3p1-a":"3p1-d",dayName:i?"A — Torso completo":"D — Complementario",startedAt:"2026-10-"+d+"T09:00:00Z",finishedAt:"2026-10-"+d+"T10:00:00Z",exercises:i?[{id:"3p1-inclinado",name:"Press inclinado",variant:"Barra",status:"completed",warmupSets:[],workingSets:Array.from({length:3},(_,j)=>({number:j+1,minReps:6,maxReps:10,targetRir:"2",actualRir:"2",completed:true,weight:"60",reps:"10",variant:"Barra"}))}]:[]}));
+    const seed=JSON.stringify({schemaVersion:4,settings:{sound:false,vibration:false,upperIncrement:2.5,lowerIncrement:5},activeSession:null,history});
+    await page.goto(origin);await press("Evolución");await noOverflow();
+    assert.match(await page.locator("main").innerText(),/No hay series comparables/);
+    assert.equal(await page.locator("[data-feature=variant]").inputValue(),"");
+    await page.evaluate(s=>localStorage.setItem("entreno.data",s),seed);await page.reload();
+    await press("Agenda");await noOverflow();
+    await page.locator('[data-feature="cal-view"]').selectOption("week");
+    assert.match(await page.locator(".cal-day.selected").getAttribute("aria-label"),/^2026-10-24/);
+    await page.locator("[data-agenda-date]").fill("2026-10-26");await press("Planificar");
+    assert.deepEqual((await state()).history,history);
+    assert.equal(await page.evaluate(()=>localStorage.getItem("entreno.backup.before-adaptive")),seed);
+    assert.equal((await state()).plans[0].date,"2026-10-26");
+    await page.locator("[data-agenda-date]").fill("2026-10-27");await press("Guardar cambios del plan");
+    const download=page.waitForEvent("download");await press("Exportar próximos entrenamientos (.ics)");
+    assert.match(await readFile(await (await download).path(),"utf8"),/DTSTART;VALUE=DATE:20261027/);
+    await page.locator('[data-action="pick-date"][data-date="2026-10-28"]').click();
+    await page.locator("[data-agenda-kind]").selectOption("3p1-b");await press("Planificar");
+    await page.locator('[data-action="pick-date"][data-date="2026-10-29"]').click();
+    await page.locator("[data-agenda-kind]").selectOption("3p1-c");assert.match(await page.locator("[data-agenda-advice]").innerText(),/plan B/);
+    await press("Planificar");await press("Eliminar solo el plan");await press("ELIMINAR PLAN");
+    assert.equal((await state()).plans.length,2);assert.deepEqual((await state()).history,history);
+    await press("Evolución");await noOverflow();
+    await page.locator('[data-feature="weeks"]').selectOption("all");
+    await page.locator('[data-feature="metric"]').selectOption("estimate");
+    assert.match(await page.locator("main").innerText(),/Récord de carga.*60 kg/);
+    assert.equal(await page.locator("svg").last().locator("circle").count(),2);
+    await press("Entreno");await press("VER ENTRENAMIENTO A");await press("COMENZAR ENTRENAMIENTO");
+    const ex=page.locator(".exercise-card").first();
+    await ex.locator(".exercise-options > summary").click();await ex.locator('[data-option="variant"]').fill("Barra");await press("APLICAR A ESTA SESIÓN");
+    assert.equal((await state()).activeSession.exercises[0].workingSets[0].weight,"");
+    await page.locator(".compact > summary").click();await page.locator('[data-well="pain"]').selectOption("Articular");
+    await page.locator('[data-well="left"]').selectOption("Fatiga alta");await page.locator('[data-well="note"]').fill("Registro de prueba");
+    await press("Guardar recuperación");
+    assert.match(await ex.locator(".progress-note").innerText(),/molestia articular/);
+    assert.equal(await ex.locator('[data-action="accept-load"]').count(),0);
+    await page.locator(".compact > summary").click();await page.locator('[data-well="pain"]').selectOption("Ninguna");await press("Guardar recuperación");
+    await ex.locator('[data-action="accept-load"]').click();
+    const working=ex.locator(".set-card").first();
+    assert.equal(await working.locator('[data-field="weight"]').inputValue(),"62.5");
+    assert.equal((await state()).activeSession.exercises[0].workingSets[0].completed,false);
+    await working.locator('[data-field="weight"]').fill("61");await press("PAUSAR ENTRENAMIENTO");await page.reload();
+    const persisted=await state();assert.deepEqual(persisted.history,history);assert.equal(persisted.wellness[0].date,"2026-10-24");
+    assert.equal(persisted.activeSession.exercises[0].workingSets[0].weight,"61");
+    await press("REANUDAR SESIÓN");await press("CANCELAR ENTRENAMIENTO");
+    await page.locator("#modal").getByRole("button",{name:"CANCELAR ENTRENAMIENTO"}).click();
+    assert.deepEqual((await state()).history,history);
+    await press("Ajustes");
+    const exportEvent=page.waitForEvent("download"); await press("EXPORTAR DATOS");
+    const bytes=await readFile(await (await exportEvent).path()), exported=JSON.parse(bytes);
+    assert.equal(exported.schemaVersion,5);assert.equal(exported.plans.length,2);assert.deepEqual(exported.wellness,persisted.wellness);
+    await page.locator("#import-input").setInputFiles({name:"local-v5.json",mimeType:"application/json",buffer:bytes});
+    await press("IMPORTAR");assert.deepEqual(await state(),exported);
+    assert.deepEqual(errors,[]);
+  } finally {await context.close();}
+}
+
 try {
   const onlyPlanning = process.argv.includes("--planning-only");
   const channels = process.argv.slice(2).filter(arg => arg !== "--planning-only");
@@ -178,7 +245,8 @@ try {
       for (const [width,height] of [[1280,800],[375,812],[390,844],[430,932]]) {
         if (!onlyPlanning) await scenario(browser,width,height);
         await planningScenario(browser,width,height);
-        console.log(`✓ ${channel} ${browser.version()}, ${width}×${height} · ${onlyPlanning ? "planificación" : "sesiones y planificación"}`);
+        if (!onlyPlanning) await adaptiveScenario(browser,width,height);
+        console.log(`✓ ${channel} ${browser.version()}, ${width}×${height} · ${onlyPlanning ? "planificación" : "sesión, ciclo y experiencia adaptativa"}`);
       }
     } finally { await browser.close(); }
   }

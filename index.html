@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0b0d10">
   <meta name="description" content="Entreno: registro local de entrenamientos de hipertrofia.">
   <title>Entreno</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=5">
 </head>
 <body>
   <div id="app" class="app-shell">
@@ -20,6 +20,8 @@
 
     <nav class="bottom-nav" aria-label="Navegación principal">
       <button type="button" data-route="home" class="active"><span aria-hidden="true">◆</span>Entreno</button>
+      <button type="button" data-route="calendar"><span aria-hidden="true">▦</span>Agenda</button>
+      <button type="button" data-route="evolution"><span aria-hidden="true">↗</span>Evolución</button>
       <button type="button" data-route="history"><span aria-hidden="true">◷</span>Historial</button>
       <button type="button" data-route="settings"><span aria-hidden="true">⚙</span>Ajustes</button>
     </nav>
@@ -36,6 +38,8 @@
     </form>
   </dialog>
   <input id="import-input" type="file" accept="application/json,.json" hidden>
-  <script src="app.js"></script>
+  <script src="insights.js?v=5"></script>
+  <script src="views.js?v=5"></script>
+  <script src="app.js?v=5"></script>
 </body>
 </html>

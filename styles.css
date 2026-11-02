@@ -157,6 +157,23 @@ dialog::backdrop { background: rgb(0 0 0 / 75%); backdrop-filter: blur(3px); }
 .modal-card { padding: 22px; }
 .modal-card .muted { white-space: pre-line; }
 .modal-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 9px; margin-top: 20px; }
+.bottom-nav { grid-template-columns: repeat(5,minmax(0,1fr)); }
+.bottom-nav button { padding: 2px; font-size: clamp(.64rem,2.7vw,.76rem); }
+.overview h2, .panel .row h2 { margin-bottom: 6px; }
+.compact summary, .overview summary, .progress-note summary, .panel > details > summary { cursor:pointer; min-height:44px; padding:10px 0; font-weight:700; }
+.compact summary small { display:block; color:var(--muted); font-weight:500; }
+.feature-fields { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(145px,100%),1fr)); gap:10px; margin:12px 0; }
+.panel select, .panel textarea, .panel input[type=date], .progress-note input { display:block; padding:9px; width:100%; max-width:100%; min-width:0; min-height:44px; border:1px solid var(--border); border-radius:9px; background:var(--surface-2); color:var(--text); font:inherit; font-size:16px; }
+.panel .row > select { width:auto; } .feature-fields label { min-width:0; }
+.panel textarea { margin:6px 0 12px; } .panel summary:focus-visible, select:focus-visible, textarea:focus-visible { outline:2px solid var(--accent); }
+.progress-note .button { margin:8px 0; } .progress-note details { margin-top:5px; }
+.cal-grid { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:3px; margin:12px 0; text-align:center; }
+.cal-grid small { color:var(--muted); } .cal-day, .period-nav button { background:var(--surface-2); color:var(--text); border:1px solid var(--border); border-radius:9px; min-height:44px; }
+.cal-day { padding:4px 0; display:grid; justify-items:center; } .cal-day.selected { border-color:var(--accent); }
+.cal-day span { display:flex; flex-wrap:wrap; justify-content:center; min-height:12px; } .cal-day i { font:700 .65rem system-ui; padding:0 2px; } .cal-day .ok { color:var(--accent); } .cal-day .partial { color:var(--warning); } .cal-day .plan { color:#9ecaff; }
+.period-nav { display:grid; grid-template-columns:1fr 2fr 1fr; gap:6px; }
+.trend { margin:14px 0; padding:10px; background:var(--surface-2); border-radius:12px; } .trend figcaption { font-weight:700; font-size:.86rem; }
+.trend svg { display:block; width:100%; max-height:145px; fill:var(--accent); } .trend .row { flex-wrap:wrap; font-size:.69rem; }
 @media (max-width: 390px) { .microcycle > div { grid-template-columns: repeat(2, 1fr); } .warmup-set .set-top { align-items: flex-start; flex-direction: column; gap: 3px; } .warmup-target { text-align: left; } .timer-controls { grid-template-columns: repeat(2, 1fr); } }
 @media (min-width: 620px) { .day-grid { grid-template-columns: 1fr 1fr; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; } }

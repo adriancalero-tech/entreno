@@ -121,15 +121,16 @@ function validateWorkoutProgram(program) {
   });
 }
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 const STORAGE_KEY = "entreno.data";
 const BACKUP_KEY = "entreno.backup.before-3p1";
+const ADAPTIVE_BACKUP = "entreno.backup.before-adaptive";
 const IMPORT_BACKUP_KEY = "entreno.backup.before-import";
 const defaults = () => ({
   schemaVersion: SCHEMA_VERSION,
   settings: { sound: false, vibration: true, upperIncrement: 2.5, lowerIncrement: 5 },
   activeSession: null,
-  history: []
+  history: [], plans: [], wellness: []
 });
 
 const storage = {
@@ -138,9 +139,14 @@ const storage = {
   needsBackup: false,
   validate(data) {
     if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("El archivo no contiene un objeto válido.");
-    if (![1, 2, 3, SCHEMA_VERSION].includes(data.schemaVersion)) throw new Error(`Versión de datos incompatible (${data.schemaVersion ?? "desconocida"}).`);
+    if (![1, 2, 3, 4, SCHEMA_VERSION].includes(data.schemaVersion)) throw new Error(`Versión de datos incompatible (${data.schemaVersion ?? "desconocida"}).`);
     if (!data.settings || typeof data.settings !== "object" || !Array.isArray(data.history)) throw new Error("Faltan secciones obligatorias.");
     const clean = defaults();
+    if (data.schemaVersion === 5) {
+      Insights.validateExtras(data);
+      clean.plans = structuredClone(data.plans);
+      clean.wellness = structuredClone(data.wellness);
+    }
     clean.settings = {
       ...structuredClone(data.settings),
       sound: Boolean(data.settings.sound), vibration: data.settings.vibration !== false,
@@ -173,7 +179,7 @@ const storage = {
       this.lastRaw = localStorage.getItem(STORAGE_KEY);
       if (this.lastRaw === null) return defaults();
       const data = JSON.parse(this.lastRaw);
-      this.needsBackup = data.schemaVersion < SCHEMA_VERSION;
+      this.needsBackup = data.schemaVersion < SCHEMA_VERSION ? data.schemaVersion : false;
       return this.migrate(data);
     } catch (error) {
       this.readError = String(error.message);
@@ -185,12 +191,14 @@ const storage = {
       if (this.readError && !importing) throw new Error(this.readError);
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw !== this.lastRaw) throw new Error("Los datos cambiaron en otra pestaña. Recarga antes de continuar.");
-      if (raw !== null && this.needsBackup && localStorage.getItem(BACKUP_KEY) === null) localStorage.setItem(BACKUP_KEY, raw);
-      if (importing && raw !== null) {
-        let key = IMPORT_BACKUP_KEY;
+      if (raw !== null && this.needsBackup && this.needsBackup < 4 && localStorage.getItem(BACKUP_KEY) === null) localStorage.setItem(BACKUP_KEY, raw);
+      const needsAdaptiveCopy=this.needsBackup && (this.needsBackup===4 || localStorage.getItem(BACKUP_KEY)!==raw);
+      for (const prefix of [needsAdaptiveCopy && ADAPTIVE_BACKUP, importing && IMPORT_BACKUP_KEY].filter(Boolean)) {
+        if (raw === null) continue;
+        let key = prefix;
         for (let n = 2; localStorage.getItem(key) !== null; n++) {
           if (localStorage.getItem(key) === raw) break;
-          key = IMPORT_BACKUP_KEY + "." + n;
+          key = prefix + "." + n;
         }
         if (localStorage.getItem(key) === null) localStorage.setItem(key, raw);
       }
@@ -278,7 +286,7 @@ function normalizeSession(session, active) {
 function uid() { return `${Date.now().toString(36)}-${crypto.getRandomValues(new Uint32Array(1))[0].toString(36)}`; }
 function escapeHtml(value) { return String(value).replace(/[&<>'"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[c])); }
 function formatTime(seconds) { const s = Math.max(0, Math.ceil(seconds)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; }
-function formatDate(iso) { return new Intl.DateTimeFormat("es-ES", { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso)); }
+function formatDate(iso) { const d=new Date(iso); return iso!=null && Number.isFinite(+d) ? new Intl.DateTimeFormat("es-ES", { timeZone:"Europe/Madrid", dateStyle: "medium", timeStyle: "short" }).format(d) : "Fecha desconocida"; }
 function durationText(ms) { const mins = Math.max(1, Math.round(ms / 60000)); return mins >= 60 ? `${Math.floor(mins / 60)} h ${mins % 60} min` : `${mins} min`; }
 
 validateWorkoutProgram(workoutProgram);
@@ -356,7 +364,7 @@ function prescribedSets(ex) {
 }
 function variantKey(value) { return String(value || "").trim().replace(/\s+/g, " ").toLowerCase(); }
 function latestExercise(exercise, samePrescription = false) {
-  if (exercise.id.startsWith("3p1-") && !variantKey(exercise.variant)) return null;
+  if (!Insights.identified(exercise.variant)) return null;
   for (const session of state.history) {
     const ex = session.exercises.find(item => item.id === exercise.id &&
       (!samePrescription || (item.workingSets.length === exercise.workingSets.length &&
@@ -368,21 +376,8 @@ function latestExercise(exercise, samePrescription = false) {
   }
   return null;
 }
-function progression(ex, group) {
-  if (!ex) return "";
-  const last = latestExercise(ex, true);
-  if (!last) return "";
-  let confident = true;
-  for (const [i, set] of last.workingSets.entries()) {
-    const target = ex.workingSets[i];
-    if (!set.completed || Number(set.reps) < target.maxReps || ("repsRight" in set && Number(set.repsRight) < target.maxReps)) return "";
-    const rir = Number.parseInt(target.targetRir, 10);
-    if (!Number.isFinite(rir)) continue;
-    if (set.actualRir == null || set.actualRir === "") confident = false;
-    else if (Number.parseInt(set.actualRir, 10) < rir) return "";
-  }
-  const increment = group === "lower" ? state.settings.lowerIncrement : state.settings.upperIncrement;
-  return confident ? `↑ Posible subida de ${increment} kg` : `↑ Posible subida de ${increment} kg si respetaste el RIR objetivo`;
+function progression(ex) {
+  return Insights.suggest(ex,state.history,state.settings,todayWellness());
 }
 
 function expectedWorkingWeight(exercise) {
@@ -411,6 +406,8 @@ function render() {
   else if (route === "session") renderSession();
   else if (route === "history") renderHistory();
   else if (route === "settings") renderSettings();
+  else if (route === "calendar") renderCalendar();
+  else if (route === "evolution") renderEvolution();
   if (route !== "session") renderTimer();
   window.scrollTo({ top: 0, behavior: "instant" });
 }
@@ -529,7 +526,7 @@ function renderHome() {
     <h2>${active ? (active.pausedAt ? "En pausa · " : "En curso · ") + escapeHtml(active.dayName) : "Siguiente en la secuencia · " + next.letter + " — " + next.name + (next.optional ? " (opcional)" : "")}</h2>
     <p class="muted">${completed}/3 sesiones principales finalizadas. ${next.optional ? "D opcional disponible." : "A → B → C · D opcional tras C."}</p>
     ${active ? "" : planningPanel(next)}${nextAction}</section>
-    <section class="day-grid" aria-label="Plantillas de entrenamiento">${workoutProgram.days.map(day => `
+    ${homeInsights(next)}<section class="day-grid" aria-label="Plantillas de entrenamiento">${workoutProgram.days.map(day => `
       <button class="day-card" data-action="open-day" data-day="${day.id}" type="button">
         <span class="day-card-top"><span class="day-number">ENTRENAMIENTO ${day.letter}</span><span class="badge">${day.optional ? "OPCIONAL" : "PRINCIPAL"}</span></span>
         <strong>${day.name}</strong><span class="muted small">${day.subtitle}</span></button>`).join("")}</section>`;
@@ -569,7 +566,7 @@ function renderSession() {
   const completedExercises=s.exercises.filter(exercise=>exerciseStatus(exercise)==="completed").length;
   const skippedExercises=s.exercises.filter(exercise=>exerciseStatus(exercise)==="skipped").length;
   main.innerHTML = `<section class="session-summary"><div class="stat"><strong>${done}/${total}</strong><span>EFECTIVAS</span></div><div class="stat"><strong>${completedExercises}/${s.exercises.length}</strong><span>EJERCICIOS${skippedExercises ? ` · ${skippedExercises} omit.` : ""}</span></div><div class="stat"><strong>${sessionDuration(s)}</strong><span>TIEMPO</span></div></section>
-    <section class="exercise-list">${s.exercises.map((ex, exIndex) => renderExercise(ex, exIndex, day)).join("")}</section>
+    ${wellnessForm()}<section class="exercise-list">${s.exercises.map((ex, exIndex) => renderExercise(ex, exIndex, day)).join("")}</section>
     <section class="panel session-finish"><h2>Cierre de sesión</h2>
       <p class="muted">Finalizar guarda las series registradas${dayById(s.dayId) ? " y avanza el ciclo" : ""}. Pausar conserva el ejercicio y el descanso para continuar más tarde.</p>
       <button class="button full" data-action="finish-session">FINALIZAR ENTRENAMIENTO</button>
@@ -581,16 +578,16 @@ function renderSession() {
 function renderExercise(ex, exIndex, day) {
   const status=exerciseStatus(ex),done=status==="completed",skipped=status==="skipped",current=exIndex===state.activeSession.currentExercise&&!done&&!skipped;
   const latest = latestExercise(ex);
-  const lastText = latest ? latest.workingSets.filter(set=>set.completed).map(set=>`${set.weight || "—"} kg × ${repText(set)}${set.actualRir !== "" ? ` (RIR ${set.actualRir})` : ""}`).join(" · ") : "Sin registros comparables";
+  const lastText = latest ? latest.workingSets.filter(set=>set.completed).map(set=>`${set.weight || "—"} kg × ${repText(set)}${set.actualRir != null && set.actualRir !== "" ? ` (RIR ${set.actualRir})` : ""}`).join(" · ") : "Sin registros comparables";
   const lastWarmups = latest?.warmupSets?.filter(set => set.status === "completed" && variantKey(set.variant ?? latest.variant) === variantKey(ex.variant));
   const programEx = day.exercises.find(e=>e.id===ex.id);
-  const recommendation = progression(ex, ex.group || day.group);
+  const recommendation = suggestionCard(ex,exIndex,done);
   const label=skipped?"OMITIDO":done?"COMPLETADO":current||status==="active"?"EN CURSO":"PENDIENTE";
   const minReps = Math.min(...ex.workingSets.map(set => set.minReps));
   const maxReps = Math.max(...ex.workingSets.map(set => set.maxReps));
   return `<details class="exercise-card ${done ? "done" : ""} ${skipped ? "skipped" : ""} ${current ? "current" : ""}" data-exercise="${exIndex}" ${current || skipped ? "open" : ""}>
     <summary class="exercise-summary"><div><span class="badge ${done ? "accent" : skipped ? "warning" : ""}">${label}</span><h3>${escapeHtml(ex.name)}</h3><div class="exercise-meta"><span>${ex.warmupSets.length} aprox. · ${ex.workingSets.length} efectivas</span><span>${minReps}-${maxReps} reps${ex.note ? " por pierna" : ""}</span><span>RIR ${escapeHtml(ex.workingSets.map(set=>set.targetRir).join(" / "))}</span><span>Entre series: ${formatTime(ex.restSeconds)}</span><span>Al siguiente: ${formatTime(ex.transitionRestSeconds)}</span></div></div></summary>
-    ${skipped ? `<div class="exercise-actions"><p class="muted small">Este ejercicio y sus aproximaciones pendientes no contarán como realizados.</p><button class="button secondary full" data-action="recover-exercise" data-exercise="${exIndex}">RECUPERAR EJERCICIO</button></div>` : `${renderExerciseOptions(ex, exIndex, programEx)}<div class="last-session"><strong>Última vez · efectivas:</strong> ${escapeHtml(lastText)}${lastWarmups?.length ? `<details class="last-warmups"><summary>Aproximaciones utilizadas</summary><span>${escapeHtml(lastWarmups.map(set => `${set.weight || "—"} kg × ${set.reps || "—"}`).join(" · "))}</span></details>` : ""}</div>${ex.info ? `<button type="button" class="exercise-info" data-action="exercise-info" data-exercise="${exIndex}">ⓘ Indicaciones de aproximación</button>` : ""}${recommendation ? `<p class="progress-note">${escapeHtml(recommendation)}</p>` : ""}${renderWarmupBlock(ex, exIndex, programEx, current)}<div class="sets working-block"><div class="block-title"><span>SERIES EFECTIVAS</span><small>${ex.workingSets.length}</small></div>${ex.workingSets.map((set,setIndex)=>renderSet(set,exIndex,setIndex)).join("")}${!done ? `<button class="button ghost full" data-action="skip-exercise" data-exercise="${exIndex}">SALTAR EJERCICIO</button>` : ""}</div>`}</details>`;
+    ${skipped ? `<div class="exercise-actions"><p class="muted small">Este ejercicio y sus aproximaciones pendientes no contarán como realizados.</p><button class="button secondary full" data-action="recover-exercise" data-exercise="${exIndex}">RECUPERAR EJERCICIO</button></div>` : `${renderExerciseOptions(ex, exIndex, programEx)}<div class="last-session"><strong>Última vez · efectivas:</strong> ${escapeHtml(lastText)}${lastWarmups?.length ? `<details class="last-warmups"><summary>Aproximaciones utilizadas</summary><span>${escapeHtml(lastWarmups.map(set => `${set.weight || "—"} kg × ${set.reps || "—"}`).join(" · "))}</span></details>` : ""}</div>${ex.info ? `<button type="button" class="exercise-info" data-action="exercise-info" data-exercise="${exIndex}">ⓘ Indicaciones de aproximación</button>` : ""}${recommendation}${renderWarmupBlock(ex, exIndex, programEx, current)}<div class="sets working-block"><div class="block-title"><span>SERIES EFECTIVAS</span><small>${ex.workingSets.length}</small></div>${ex.workingSets.map((set,setIndex)=>renderSet(set,exIndex,setIndex)).join("")}${!done ? `<button class="button ghost full" data-action="skip-exercise" data-exercise="${exIndex}">SALTAR EJERCICIO</button>` : ""}</div>`}</details>`;
 }
 
 function variantTag(record) {
@@ -1038,6 +1035,7 @@ function backupButtons() {
   const copies = [[BACKUP_KEY, "COPIA ANTERIOR AL CICLO 3+1"], [IMPORT_BACKUP_KEY, "COPIA PREVIA A IMPORTACIÓN 1"]];
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
+    if (adaptiveBackupKey(key)) copies.push([key, "COPIA PREVIA A V5" + (key === ADAPTIVE_BACKUP ? "" : " · "+key.split(".").pop())]);
     if (isNumberedImportBackup(key)) copies.push([key, "COPIA PREVIA A IMPORTACIÓN " + key.split(".").pop()]);
   }
   return copies
@@ -1047,6 +1045,7 @@ function backupButtons() {
 function isNumberedImportBackup(key) {
   return /^entreno\.backup\.before-import\.[1-9]\d*$/.test(key);
 }
+function adaptiveBackupKey(key) { return /^entreno\.backup\.before-adaptive(?:\.[1-9]\d*)?$/.test(key); }
 function renderRecovery() {
   stopTimerUiOnly();
   timerDock.classList.add("hidden");
@@ -1062,7 +1061,7 @@ function renderRecovery() {
 async function importData(file) {
   try {
     const imported = storage.import(await file.text());
-    showModal("Importar datos", "Se guardará una copia del JSON anterior antes de reemplazar la sesión, el historial y los ajustes.", [
+    showModal("Importar datos", "Se guardará una copia del JSON anterior antes de reemplazar sesión, historial, agenda, recuperación y ajustes. Los archivos anteriores a V5 no contienen agenda ni recuperación.", [
       { label: "CANCELAR" }, { label: "IMPORTAR", action: () => {
         if (!storage.save(imported, true)) return;
         stopTimerUiOnly();
@@ -1080,6 +1079,7 @@ async function importData(file) {
 document.addEventListener("click", event => {
   const button=event.target.closest("button");if(!button)return;const {action}=button.dataset;
   if(button.dataset.route){route=button.dataset.route;selectedDayId=null;render();return;}
+  if(!storage.readError && featureClick(button))return;
   if(action==="skip-optional")skipOptional();
   else if(action==="save-exercise-options")saveExerciseOptions(button);
   else if(action==="open-day"){selectedDayId=button.dataset.day;route="day";render();}
@@ -1107,12 +1107,13 @@ document.addEventListener("click", event => {
   else if(action==="history-rir"&&historyDraft){const set=historyDraft.exercises[+button.dataset.exercise]?.workingSets[+button.dataset.set];if(set){set.actualRir=set.actualRir===button.dataset.value?"":button.dataset.value;button.parentElement.querySelectorAll("button").forEach(item=>item.classList.toggle("selected",item.dataset.value===set.actualRir));}}
   else if(action==="test-sound")testTimerSound();
   else if(action==="download-original")downloadJson(localStorage.getItem(STORAGE_KEY),"entreno-original");
-  else if(action==="download-backup" && ([BACKUP_KEY,IMPORT_BACKUP_KEY].includes(button.dataset.key) || isNumberedImportBackup(button.dataset.key)))downloadJson(localStorage.getItem(button.dataset.key),"entreno-copia");
+  else if(action==="download-backup" && ([BACKUP_KEY,IMPORT_BACKUP_KEY].includes(button.dataset.key) || isNumberedImportBackup(button.dataset.key) || adaptiveBackupKey(button.dataset.key)))downloadJson(localStorage.getItem(button.dataset.key),"entreno-copia");
   else if(action==="export")exportData();else if(action==="import")document.querySelector("#import-input").click();
-  else if(action==="clear-data")showModal("Borrar datos actuales","Se eliminarán el historial, la sesión activa y los ajustes actuales. Las copias de seguridad guardadas se conservarán.",[{label:"CANCELAR"},{label:"BORRAR DATOS ACTUALES",className:"danger",action:()=>{if(state.activeSession)stopTimer(false);else releaseTimerAudio();storage.clear();state=defaults();route="settings";render();notify("Datos actuales borrados");}}]);
+  else if(action==="clear-data")showModal("Borrar datos actuales","Se eliminarán el historial, la sesión activa, la agenda, los registros de recuperación y los ajustes actuales. Las copias de seguridad guardadas se conservarán.",[{label:"CANCELAR"},{label:"BORRAR DATOS ACTUALES",className:"danger",action:()=>{if(state.activeSession)stopTimer(false);else releaseTimerAudio();storage.clear();state=defaults();route="settings";render();notify("Datos actuales borrados");}}]);
 });
 
 document.addEventListener("change", event => {
+  if(!storage.readError && featureChange(event.target))return;
   const el=event.target;if(el.matches("input[data-field]"))updateInput(el);
   if(el.matches("input[data-history-field]"))updateHistoryInput(el);
   if(el.matches("input[data-setting]")){const key=el.dataset.setting;if(el.type==="checkbox")state.settings[key]=el.checked;else state.settings[key]=validPositive(el.value,state.settings[key]);if(key==="sound"&&!state.settings.sound)releaseTimerAudio();if(!persist())return;if(el.type!=="checkbox")el.value=state.settings[key];if(key==="sound")renderSettings();if(key==="thirdSquatSet")renderDay();}

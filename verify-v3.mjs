@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { webcrypto } from "node:crypto";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
+import { verifyInsights } from "./verify-insights.mjs";
 
 class FakeElement {
   constructor() {
@@ -68,11 +69,11 @@ const context = vm.createContext({
   }
 });
 
-let source = readFileSync(new URL("./app.js", import.meta.url), "utf8");
+let source = ["insights.js","views.js","app.js"].map(file=>readFileSync(new URL(file, import.meta.url), "utf8")).join("\n");
 source = source.replace(/\nrender\(\);\s*$/, "");
 source += `
 globalThis.api = {
-  workoutProgram: legacyProgram, currentProgram: workoutProgram, defaults, storage, normalizeSession, createSession, progression,
+  workoutProgram: legacyProgram, currentProgram: workoutProgram, Insights, defaults, storage, normalizeSession, createSession, progression,
   completedSetCount, totalSetCount, programWarmups, renderHistoryExercise, renderExercise, suggestedWarmupWeight,
   toggleWarmup, skipWarmup, recoverWarmup, toggleSet, skipExercise, recoverExercise,
   selectWarmupVariant, updateInput, beginHistoryEdit, updateHistoryInput, saveHistoryEdit, stopTimer,
@@ -101,7 +102,7 @@ const check = (name, callback) => {
   results.push(`✓ ${name}`);
 };
 
-check("1. Usuario nuevo creado con el esquema actual", () => assert.equal(api.defaults().schemaVersion, 4));
+check("1. Usuario nuevo creado con el esquema actual", () => assert.equal(api.defaults().schemaVersion, 5));
 
 const v2Session = {
   id: "legacy-session", dayId: "push", dayName: "PUSH", startedAt: "2026-01-01T10:00:00.000Z", finishedAt: "2026-01-01T11:00:00.000Z", currentExercise: 0,
@@ -117,7 +118,7 @@ check("2. Los datos V1/V2 existentes se aceptan", () => {
   assert.equal(migratedV1.history[0].exercises[0].workingSets[0].weight, "80");
 });
 check("3. La migración conserva historial y sesión activa", () => {
-  assert.equal(migrated.schemaVersion, 4);
+  assert.equal(migrated.schemaVersion, 5);
   assert.equal(migrated.activeSession.id, "legacy-active");
   assert.equal(migrated.history[0].exercises[0].workingSets[0].weight, "80");
   assert.deepEqual([...migrated.history[0].exercises[0].warmupSets], []);
@@ -156,8 +157,8 @@ api.setState({ ...api.defaults(), history: [progressionSession] });
 const progressionBefore = api.progression(exercise("press-inclinado"), "upper");
 progressionExercise.warmupSets.forEach(set => { set.status = "completed"; set.reps = "999"; });
 check("8. La progresión ignora por completo las aproximaciones", () => {
-  assert.match(progressionBefore, /Posible subida/);
-  assert.equal(api.progression(exercise("press-inclinado"), "upper"), progressionBefore);
+  assert.equal(progressionBefore.kind,"none");
+  assert.deepEqual(api.progression(exercise("press-inclinado"), "upper"), progressionBefore);
 });
 
 const skipSession = withSession("push");
@@ -230,11 +231,14 @@ check("17. El historial V3 muestra ambos bloques", () => {
 const oldHistoryHtml = api.renderHistoryExercise(migrated.history[0].exercises[0], 0, false);
 assert.doesNotMatch(oldHistoryHtml, /APROXIMACIONES/);
 const sessionForLatest = withSession("push");
-api.getState().history = [progressionSession];
+progressionExercise.variant = sessionForLatest.exercises[0].variant = "Barra del gimnasio";
+api.getState().history = [structuredClone(progressionSession)];
+delete api.getState().history[0].exercises[0].workingSets[0].actualRir;
 const latestHtml = api.renderExercise(sessionForLatest.exercises[0], 0, day("push"));
 check("18. Última sesión usa las efectivas como referencia principal", () => {
   assert.match(latestHtml, /Última vez · efectivas/);
   assert.match(latestHtml, /100 kg/);
+  assert.doesNotMatch(latestHtml, /RIR undefined|RIR null/);
 });
 
 check("19. Pierna A tiene exactamente 3/2/2/2 efectivas principales", () => {
@@ -411,13 +415,14 @@ check("Variantes y descansos editables, progresión y referencias aisladas", () 
   assert.equal(recorded.workingSets[0].variant, "Máquina 1");
   const fresh = api.createSession(a).exercises[0];
   fresh.variant = "Máquina 2";
-  assert.equal(api.progression(fresh,"upper"),"");
+  assert.equal(api.progression(fresh,"upper").kind,"none");
   assert.equal(api.suggestedWarmupWeight(fresh,fresh.warmupSets[0]),null);
   fresh.variant = "Máquina 1";
-  assert.match(api.progression(fresh,"upper"),/subida/);
+  assert.equal(api.progression(fresh,"upper").kind,"hold");
+  assert.match(api.progression(fresh,"upper").text,/dos exposiciones/);
   assert.equal(api.suggestedWarmupWeight(fresh,fresh.warmupSets[0]),32);
   recorded.workingSets[0].actualRir = "0";
-  assert.equal(api.progression(fresh,"upper"),"");
+  assert.match(api.progression(fresh,"upper").text,/superó el RIR/);
   recorded.workingSets[0].variant = "Máquina 3";
   assert.equal(api.suggestedWarmupWeight(fresh,fresh.warmupSets[0]),null);
 });
@@ -485,7 +490,7 @@ const oldJsonFile = new Blob([JSON.stringify(v2Data)], { type: "application/json
 await api.importData(oldJsonFile);
 check("Importar un archivo antiguo recupera la sesión y permite exportar otra vez", () => {
   assert.equal(api.getState().activeSession.id, v2Data.activeSession.id);
-  assert.equal(api.getState().schemaVersion, 4);
+  assert.equal(api.getState().schemaVersion, 5);
   assert.equal(saved.get("entreno.backup.before-import.2"), beforeImport);
   const restored = api.storage.import(api.storage.export(api.getState()));
   assert.deepEqual(plain(restored), plain(api.getState()));
@@ -623,6 +628,7 @@ check("Una parcial sin solapamiento no oculta la última serie coincidente, incl
   assert.equal(api.cycleState().next.id,c.id);
 });
 // Solo lectura: los archivos opcionales se comparan en memoria y nunca se escriben.
+verifyInsights(api,check,saved);
 for (const [i, file] of process.argv.slice(2).entries()) {
   const raw = readFileSync(file, "utf8").replace(/^\uFEFF/,"");
   const original = JSON.parse(raw);
