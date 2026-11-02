@@ -38,12 +38,17 @@ h3 { margin-bottom: 6px; font-size: 1.05rem; }
 .icon-button { width: 44px; height: 44px; border: 1px solid var(--border); border-radius: 50%; background: var(--surface); color: var(--text); font-weight: 800; }
 .hero { padding: 10px 4px 18px; }
 .hero h2 { max-width: 18ch; margin-bottom: 8px; font-size: clamp(1.8rem, 8vw, 2.7rem); line-height: 1.05; }
-.microcycle { margin-top: 16px; }
+.cycle .button + .button { margin-top: 8px; }
+.exercise-options { margin: 0 12px 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; }
+.exercise-options summary { padding: 6px 0; cursor: pointer; color: var(--muted); font-size: .85rem; }
+.exercise-options label { margin-top: 8px; }
+.exercise-options input[type="text"] { width: 100%; min-height: 48px; padding: 8px; font-size: 16px; color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; }
 .microcycle > div { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; margin: 12px 0; }
 .microcycle > div span { display: grid; min-height: 54px; place-content: center; padding: 7px 4px; border-radius: 10px; background: var(--surface-2); font-size: .72rem; text-align: center; }
 .microcycle > div small { color: var(--accent); font-size: .6rem; font-weight: 900; }
 .microcycle > div .rest-day { color: var(--muted); background: #0d1014; }
 .pre-session-note { padding: 11px 12px; border-left: 3px solid var(--accent); border-radius: 9px; background: var(--surface-2); color: var(--text); font-size: .84rem; }
+.recovery-note { border-left-color: var(--warning); }
 .day-grid { display: grid; gap: 12px; }
 .day-card { width: 100%; min-height: 122px; padding: 20px; border: 1px solid var(--border); border-radius: var(--radius); background: linear-gradient(135deg, var(--surface-2), var(--surface)); color: var(--text); text-align: left; box-shadow: 0 8px 20px rgb(0 0 0 / 18%); }
 .day-card:active { transform: scale(.99); }
@@ -119,6 +124,7 @@ input[type="number"] { width: 100%; height: 52px; padding: 10px 12px; border: 1p
 .progress-note { margin: 0 18px 14px; padding: 11px 12px; border: 1px solid #5d4a16; border-radius: 12px; background: #211b0b; color: var(--warning); font-size: .78rem; font-weight: 750; }
 .timer-dock { position: fixed; z-index: 40; right: 12px; bottom: calc(82px + env(safe-area-inset-bottom)); left: 12px; max-width: 720px; margin: auto; padding: 14px; border: 1px solid var(--accent); border-radius: 20px; background: rgb(18 22 27 / 96%); box-shadow: var(--shadow); backdrop-filter: blur(16px); }
 .timer-dock.finished { border-color: var(--warning); animation: pulse 1s ease-in-out 2; }
+body:has(.timer-dock:not(.hidden)) .app-shell { padding-bottom: calc(420px + env(safe-area-inset-bottom)); }
 .timer-main { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .timer-time { font-size: 2rem; font-weight: 900; font-variant-numeric: tabular-nums; }
 .timer-controls { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 10px; }
@@ -152,5 +158,5 @@ dialog::backdrop { background: rgb(0 0 0 / 75%); backdrop-filter: blur(3px); }
 .modal-card .muted { white-space: pre-line; }
 .modal-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 9px; margin-top: 20px; }
 @media (max-width: 390px) { .microcycle > div { grid-template-columns: repeat(2, 1fr); } .warmup-set .set-top { align-items: flex-start; flex-direction: column; gap: 3px; } .warmup-target { text-align: left; } .timer-controls { grid-template-columns: repeat(2, 1fr); } }
-@media (min-width: 620px) { .day-grid { grid-template-columns: 1fr 1fr; } .day-card:last-child { grid-column: span 2; } }
+@media (min-width: 620px) { .day-grid { grid-template-columns: 1fr 1fr; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; } }

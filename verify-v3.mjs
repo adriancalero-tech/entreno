@@ -10,12 +10,14 @@ class FakeElement {
     this.open = false;
     this.files = [];
     this.value = "";
+    this.dataset = {};
     this.classList = { add() {}, remove() {}, toggle() {} };
   }
   addEventListener() {}
   append() {}
   replaceChildren() {}
   querySelectorAll() { return []; }
+  querySelector() { return null; }
   scrollIntoView() {}
   showModal() { this.open = true; }
   close() { this.open = false; }
@@ -45,6 +47,8 @@ const context = vm.createContext({
   },
   navigator: { vibrate() {} },
   localStorage: {
+    get length() { return saved.size; },
+    key: i => [...saved.keys()][i] ?? null,
     getItem: key => saved.get(key) ?? null,
     setItem: (key, value) => saved.set(key, value),
     removeItem: key => saved.delete(key)
@@ -68,12 +72,15 @@ let source = readFileSync(new URL("./app.js", import.meta.url), "utf8");
 source = source.replace(/\nrender\(\);\s*$/, "");
 source += `
 globalThis.api = {
-  workoutProgram, defaults, storage, normalizeSession, createSession, progression,
+  workoutProgram: legacyProgram, currentProgram: workoutProgram, defaults, storage, normalizeSession, createSession, progression,
   completedSetCount, totalSetCount, programWarmups, renderHistoryExercise, renderExercise, suggestedWarmupWeight,
   toggleWarmup, skipWarmup, recoverWarmup, toggleSet, skipExercise, recoverExercise,
   selectWarmupVariant, updateInput, beginHistoryEdit, updateHistoryInput, saveHistoryEdit, stopTimer,
   getState: () => state,
   getHistoryDraft: () => historyDraft,
+  cycleState, skipOptional, finishSession, cancelActiveSession, saveExerciseOptions, renderHome, importData, recoveryPlan, planningText, musclesFor,
+  pauseSession, resumeSession, sessionRoute, sessionDuration, renderHistorySession, pauseTimer, backupButtons,
+  startDay: id => { selectedDayId = id; beginSession(); },
   setState: value => { state = value; },
   autoConfirm: () => { showModal = (_title, _body, actions) => actions.at(-1).action?.(); }
 };`;
@@ -94,7 +101,7 @@ const check = (name, callback) => {
   results.push(`✓ ${name}`);
 };
 
-check("1. Usuario nuevo creado con schemaVersion 3", () => assert.equal(api.defaults().schemaVersion, 3));
+check("1. Usuario nuevo creado con el esquema actual", () => assert.equal(api.defaults().schemaVersion, 4));
 
 const v2Session = {
   id: "legacy-session", dayId: "push", dayName: "PUSH", startedAt: "2026-01-01T10:00:00.000Z", finishedAt: "2026-01-01T11:00:00.000Z", currentExercise: 0,
@@ -110,7 +117,7 @@ check("2. Los datos V1/V2 existentes se aceptan", () => {
   assert.equal(migratedV1.history[0].exercises[0].workingSets[0].weight, "80");
 });
 check("3. La migración conserva historial y sesión activa", () => {
-  assert.equal(migrated.schemaVersion, 3);
+  assert.equal(migrated.schemaVersion, 4);
   assert.equal(migrated.activeSession.id, "legacy-active");
   assert.equal(migrated.history[0].exercises[0].workingSets[0].weight, "80");
   assert.deepEqual([...migrated.history[0].exercises[0].warmupSets], []);
@@ -288,6 +295,362 @@ assert.equal(suggestionSession.exercises[0].warmupSets[2].weight, "");
 check("25. La estructura, variantes, sugerencias y microciclo son coherentes", () => assert.ok(true));
 check("26. Ejecución sin errores de consola", () => assert.deepEqual(consoleErrors, []));
 
+const [a,b,c,d] = api.currentProgram.days;
+api.setState(api.defaults());
+check("Plantillas 3+1: series, repeticiones, RIR y descansos, en orden", () => {
+  const expected = [
+    ["3/6-10/2/150","3/6-10/2/150","2/8-12/2/150","2/8-12/2/150","2/12-20/1-2/90","2/8-12/1-2/90","2/10-15/1-2/90"],
+    ["2/5-8/3/180-240","2/10-15/2/120","2/10-15/2/150","2/10-15/1-2/90","2/10-20/No obligatorio/60-90","2/10-15/1-2/90"],
+    ["2/4-6/3/180-240","3/8-12/2/150","2/8-12/2-3/150","2/10-15/2/120","2/8-12/2/150","2/12-20/1-2/90"],
+    ["2/8-12/2/150","2/10-12/2/120","2/12-20/1-2/90","2/8-12/1-2/90","2/10-15/1-2/90","2/10-20/1-2, si procede/90"]
+  ];
+  for (const [index, day] of [a,b,c,d].entries()) {
+    assert.deepEqual(Array.from(day.exercises, ex => {
+      const target = ex.workingSets[0];
+      assert.ok(ex.workingSets.every(s => JSON.stringify(s) === JSON.stringify(target)));
+      return `${ex.workingSets.length}/${target.minReps}-${target.maxReps}/${target.targetRir}/${ex.restSeconds}${ex.restMax ? "-" + ex.restMax : ""}`;
+    }), expected[index]);
+  }
+  assert.deepEqual([a,b,c,d].map(day => api.totalSetCount(api.createSession(day))), [16,12,13,12]);
+  assert.deepEqual([a,b,c,d].map(day=>Array.from(day.exercises, ex=>ex.name)), [
+    ["Press inclinado","Jalón al pecho","Press plano","Remo con pecho apoyado","Elevaciones laterales","Curl predicador","Extensión de tríceps sobre la cabeza"],
+    ["Sentadilla libre con barra","Curl femoral tumbado","Prensa de piernas","Extensión de cuádriceps","Abdominales","Elevación de gemelos"],
+    ["Peso muerto convencional","Press plano","Sentadilla búlgara","Curl femoral tumbado","Remo en máquina","Reverse pec deck"],
+    ["Press de hombro","Jalón al pecho, agarre alternativo","Elevaciones laterales","Curl de bíceps","Extensión de tríceps","Gemelos o abdominales"]
+  ]);
+  assert.doesNotMatch(JSON.stringify(api.currentProgram),/curl femoral sentado/i);
+  assert.deepEqual([a,b,c,d].map(day=>Boolean(day.optional)),[false,false,false,true]);
+  assert.equal(b.exercises[0].name, "Sentadilla libre con barra");
+  assert.equal(c.exercises[0].name, "Peso muerto convencional");
+  assert.equal(c.exercises[3].name, b.exercises[1].name);
+  assert.equal(c.exercises[3].name, "Curl femoral tumbado");
+  assert.equal(b.exercises[4].name, "Abdominales");
+  api.getState().settings.thirdSquatSet = true;
+  assert.equal(api.createSession(b).exercises[0].workingSets.length, 3);
+  api.getState().settings.thirdSquatSet = false;
+});
+
+function finishDay(day) {
+  assert.equal(api.cycleState().next.id, day.id);
+  api.startDay(day.id);
+  const session = api.getState().activeSession;
+  assert.equal(session.dayId, day.id);
+  for (const [i, ex] of session.exercises.entries()) {
+    for (const [j,set] of ex.workingSets.entries()) {
+      completeInput(set);
+      if ("repsRight" in set) set.repsRight = "9";
+      api.toggleSet(i,j);
+    }
+  }
+  assert.equal(session.timer.status, "idle");
+  api.finishSession();
+  assert.equal(api.getState().activeSession, null);
+  assert.equal(api.getState().history[0].result,"complete");
+}
+check("Cancelar conserva A; finalizar una parcial guarda una vez y avanza a B", () => {
+  api.startDay(b.id);
+  assert.equal(api.getState().activeSession,null);
+  api.startDay(a.id);
+  api.cancelActiveSession();
+  assert.equal(api.getState().history.length,0);
+  assert.equal(api.cycleState().next.id,a.id);
+  api.startDay(a.id);
+  completeInput(api.getState().activeSession.exercises[0].workingSets[0]);
+  api.toggleSet(0,0);
+  api.finishSession();
+  api.finishSession();
+  assert.equal(api.cycleState().next.id,b.id);
+  assert.equal(api.getState().history.length,1);
+  assert.equal(api.getState().history[0].result,"partial");
+  assert.equal(api.completedSetCount(api.getState().history[0]),1);
+});
+check("Completar A, B y C con pausas, recargar y elegir D", () => {
+  api.setState(api.defaults());
+  finishDay(a);
+  api.getState().history[0].finishedAt = "2026-01-01T08:00:00Z";
+  api.setState(api.storage.import(api.storage.export(api.getState())));
+  finishDay(b);
+  finishDay(c);
+  assert.equal(api.cycleState().completed,3);
+  finishDay(d);
+  assert.equal(api.cycleState().next.id,a.id);
+});
+check("Omitir D tras C persiste sin crear una sesión", () => {
+  finishDay(a); finishDay(b); finishDay(c);
+  const before = JSON.stringify(api.getState().history);
+  api.skipOptional();
+  api.setState(api.storage.load());
+  assert.equal(api.cycleState().next.id,a.id);
+  assert.equal(JSON.stringify(api.getState().history),before);
+  api.startDay(a.id);
+  assert.equal(api.getState().activeSession.dayId,a.id);
+  api.cancelActiveSession();
+});
+check("Variantes y descansos editables, progresión y referencias aisladas", () => {
+  api.startDay(a.id);
+  const ex = api.getState().activeSession.exercises[0];
+  const options = (variant) => ({
+    dataset: { exercise: "0" }, closest: () => ({
+      querySelector: () => ({ value: variant }), querySelectorAll: () => [
+        { value: "75", dataset: {option: "warmup-0"} }, {value: "135", dataset: {option:"restSeconds"}}
+      ]
+    })
+  });
+  api.saveExerciseOptions(options("Máquina 1"));
+  assert.equal(ex.warmupSets[0].restSeconds,75);
+  for (const [i,set] of ex.workingSets.entries()) {
+    for (const [field,value] of [["weight","80"],["reps","10"]]) {
+      api.updateInput({dataset:{exercise:0,set:i,field,series:"working"},value});
+    }
+    set.actualRir = "2";
+    api.toggleSet(0,i);
+    if (i === 0) assert.equal(api.getState().activeSession.timer.durationMs,135000);
+  }
+  api.finishSession();
+  const recorded = api.getState().history[0].exercises[0];
+  assert.equal(recorded.workingSets[0].variant, "Máquina 1");
+  const fresh = api.createSession(a).exercises[0];
+  fresh.variant = "Máquina 2";
+  assert.equal(api.progression(fresh,"upper"),"");
+  assert.equal(api.suggestedWarmupWeight(fresh,fresh.warmupSets[0]),null);
+  fresh.variant = "Máquina 1";
+  assert.match(api.progression(fresh,"upper"),/subida/);
+  assert.equal(api.suggestedWarmupWeight(fresh,fresh.warmupSets[0]),32);
+  recorded.workingSets[0].actualRir = "0";
+  assert.equal(api.progression(fresh,"upper"),"");
+  recorded.workingSets[0].variant = "Máquina 3";
+  assert.equal(api.suggestedWarmupWeight(fresh,fresh.warmupSets[0]),null);
+});
+check("Búlgaras: cada pierna en sesión, exportación e historial editable", () => {
+  const session = api.createSession(c);
+  api.setState({...api.defaults(),activeSession:session});
+  const set = session.exercises[2].workingSets[0];
+  completeInput(set);
+  api.toggleSet(2,0);
+  assert.equal(set.completed,false);
+  api.updateInput({dataset:{exercise:2,set:0,field:"repsRight",series:"working"},value:"10"});
+  api.toggleSet(2,0);
+  api.finishSession();
+  const s = api.storage.import(api.storage.export(api.getState())).history[0];
+  assert.match(api.renderHistoryExercise(s.exercises[2],2,false), /8 izq. \/ 10 der./);
+  api.beginHistoryEdit(s.id);
+  api.updateHistoryInput({dataset:{exercise:2,set:0,series:"working",historyField:"repsRight"},value:"11"});
+  api.saveHistoryEdit(s.id);
+  assert.equal(api.getState().history[0].exercises[2].workingSets[0].repsRight,"11");
+});
+check("V3: copia literal, 1.005 sesiones intactas y reanudación de Pierna B anterior", () => {
+  const oldActive = api.createSession(day("pierna-b"));
+  oldActive.exercises[0].workingSets[0].weight = "97.5";
+  const old = {...api.defaults(), schemaVersion:3, activeSession:oldActive,
+    history:Array.from({length:1005},(_,i)=>({...migrated.history[0],id:"old-"+i}))};
+  old.settings.extra = "personalizado";
+  const raw = JSON.stringify(old,null,1);
+  saved.set("entreno.data",raw);
+  const loaded = api.storage.load();
+  api.setState(loaded);
+  assert.equal(saved.get("entreno.data"),raw);
+  assert.equal(JSON.stringify(loaded.history),JSON.stringify(old.history));
+  assert.equal(JSON.stringify(loaded.activeSession),JSON.stringify(oldActive));
+  assert.equal(loaded.settings.extra,"personalizado");
+  assert.equal(api.storage.save(loaded),true);
+  assert.equal(saved.get("entreno.backup.before-3p1"),raw);
+  assert.equal(api.cycleState().next.id,a.id);
+  completeInput(loaded.activeSession.exercises[0].warmupSets[0]);
+  api.toggleWarmup(0,0);
+  assert.equal(loaded.activeSession.timer.kind,"warmup");
+  assert.equal(loaded.activeSession.exercises[0].name,"Peso muerto rumano");
+  api.stopTimer(false);
+  const before = saved.get("entreno.data");
+  assert.equal(api.storage.save(api.storage.import(raw),true),true);
+  assert.equal(saved.get("entreno.backup.before-import"),before);
+  assert.equal(JSON.stringify(api.storage.load().history),JSON.stringify(old.history));
+});
+check("JSON ilegible y falta de espacio preservan el original", () => {
+  saved.set("entreno.data","incompleto");
+  api.storage.load();
+  assert.equal(api.storage.save(api.defaults()),false);
+  assert.equal(saved.get("entreno.data"),"incompleto");
+  const raw = JSON.stringify(v2Data);
+  saved.set("entreno.data",raw);
+  saved.delete("entreno.backup.before-3p1");
+  const migrated = api.storage.load();
+  const save = context.localStorage.setItem;
+  context.localStorage.setItem = () => { throw new Error("Sin espacio"); };
+  assert.equal(api.storage.save(migrated),false);
+  assert.equal(saved.get("entreno.data"),raw);
+  context.localStorage.setItem = save;
+});
+const beforeImport = saved.get("entreno.data");
+const oldJsonFile = new Blob([JSON.stringify(v2Data)], { type: "application/json" });
+await api.importData(oldJsonFile);
+check("Importar un archivo antiguo recupera la sesión y permite exportar otra vez", () => {
+  assert.equal(api.getState().activeSession.id, v2Data.activeSession.id);
+  assert.equal(api.getState().schemaVersion, 4);
+  assert.equal(saved.get("entreno.backup.before-import.2"), beforeImport);
+  const restored = api.storage.import(api.storage.export(api.getState()));
+  assert.deepEqual(plain(restored), plain(api.getState()));
+});
+check("Pausa conserva borradores, posición, descanso y duración tras recarga", () => {
+  api.setState(api.defaults());
+  api.startDay(a.id);
+  const active = api.getState().activeSession;
+  completeInput(active.exercises[0].warmupSets[0]);
+  api.toggleWarmup(0,0);
+  api.updateInput({dataset:{exercise:0,set:1,series:"warmup",field:"weight"},value:"32.5"});
+  const exercises = JSON.stringify(active.exercises);
+  api.pauseSession();
+  api.setState(api.storage.import(api.storage.export(api.storage.load())));
+  const paused = api.getState().activeSession;
+  assert.equal(api.sessionRoute(),"home");
+  assert.equal(api.getState().history.length,0);
+  assert.equal(api.cycleState().next.id,a.id);
+  assert.equal(paused.timer.status,"paused");
+  assert.equal(paused.timer.endTimestamp,null);
+  const remaining = paused.timer.remainingMs;
+  paused.pausedAt -= 3600000;
+  api.resumeSession();
+  const resumed = api.getState().activeSession;
+  assert.equal(JSON.stringify(resumed.exercises), exercises);
+  assert.deepEqual(plain(resumed.entryPosition),{exercise:0,set:1,series:"warmup"});
+  assert.equal(resumed.id,active.id);
+  assert.equal(resumed.timer.status,"running");
+  assert.ok(Math.abs(resumed.timer.endTimestamp - Date.now() - remaining) < 1000);
+  assert.ok(resumed.pausedMs >= 3600000);
+  api.pauseTimer(); api.pauseSession(); api.resumeSession();
+  assert.equal(api.getState().activeSession.timer.status,"paused");
+  api.cancelActiveSession();
+  assert.equal(api.getState().history.length,0);
+});
+check("Las parciales avanzan en los cuatro días, incluso al omitir ejercicios", () => {
+  api.setState(api.defaults());
+  for (const [i, day] of [a,b,c,d].entries()) {
+    api.startDay(day.id);
+    api.skipExercise(0);
+    api.finishSession(); api.finishSession();
+    const { history } = api.getState();
+    assert.equal(history.length,i+1);
+    assert.equal(history[0].result,"partial");
+    assert.equal(api.completedSetCount(history[0]),0);
+    assert.equal(history[0].exercises[0].status,"skipped");
+    assert.match(api.renderHistorySession(history[0]),/PARCIAL/);
+    api.setState(api.storage.load());
+    assert.equal(api.cycleState().next.id,[b,c,d,a][i].id);
+  }
+});
+check("Historial y copias inmutables ante reimportación, ID repetido y escritura fallida", () => {
+  const initial = new Map([...saved].filter(([k])=>k.startsWith("entreno.backup.")));
+  const existing = api.getState();
+  assert.throws(()=>api.storage.import(JSON.stringify({...existing,history:[existing.history[0],...existing.history]})),/duplicados/);
+  assert.throws(()=>api.storage.validate({...existing,activeSession:existing.history[0]}),/duplicados/);
+  assert.equal(api.storage.save(api.defaults(),true),true);
+  for (const [k,v] of initial) assert.equal(saved.get(k),v);
+  assert.match(api.backupButtons(),/IMPORTACIÓN 2/);
+  api.setState(api.storage.load()); api.startDay(a.id);
+  const original = saved.get("entreno.data");
+  const save = context.localStorage.setItem;
+  context.localStorage.setItem = () => { throw new Error("Sin espacio"); };
+  api.finishSession();
+  assert.equal(api.getState().activeSession.dayId,a.id);
+  assert.equal(api.getState().history.length,0);
+  assert.equal(saved.get("entreno.data"),original);
+  context.localStorage.setItem = save;
+  api.setState(api.storage.load());
+});
+const hour = 3600000, sunday = Date.parse("2026-01-11T18:00:00Z");
+function loggedSession(template, at, exerciseIndex) {
+  const entry = api.createSession(template);
+  entry.startedAt = new Date(at - hour).toISOString();
+  entry.finishedAt = new Date(at).toISOString();
+  if (exerciseIndex != null) {
+    const set = entry.exercises[exerciseIndex].workingSets[0];
+    Object.assign(set,{weight:"40",reps:"8",completed:true,completedAt:entry.finishedAt});
+  }
+  return entry;
+}
+check("D el domingo → A el lunes: fechas a 48–72 h, sin bloquear ni reiniciar el ciclo", () => {
+  const recent = loggedSession(d,sunday,0);
+  api.setState({...api.defaults(),history:[recent]});
+  const before = JSON.stringify(api.getState());
+  assert.equal(api.cycleState().next.id,a.id);
+  const plan = api.recoveryPlan(a,sunday+24*hour);
+  assert.equal(plan.overlap.at,sunday);
+  assert.ok(plan.overlap.muscles.includes("hombros"));
+  assert.match(api.planningText(a,sunday+24*hour),/Poco tiempo.*Press de hombro.*Press inclinado/);
+  assert.match(api.planningText(a,sunday+48*hour),/En la ventana orientativa/);
+  assert.equal(api.recoveryPlan(a,sunday+72*hour).overlap,null);
+  assert.equal(JSON.stringify(api.getState()),before);
+  api.startDay(a.id);
+  assert.equal(api.getState().activeSession.dayId,a.id);
+});
+check("B → C identifica sentadilla/peso muerto; las series antiguas de una sesión pausada no rejuvenecen", () => {
+  const leg = loggedSession(b,sunday,0);
+  api.setState({...api.defaults(),history:[leg]});
+  assert.match(api.planningText(c,sunday+hour),/Sentadilla libre con barra.*Peso muerto convencional.*glúteos/);
+  leg.exercises[0].workingSets[0].completedAt = new Date(sunday-75*hour).toISOString();
+  assert.equal(api.recoveryPlan(c,sunday+hour).overlap,null);
+  delete leg.exercises[0].workingSets[0].completedAt;
+  assert.equal(api.recoveryPlan(c,sunday+hour).overlap.at,sunday);
+});
+check("Solo cuentan efectivas coincidentes, no aproximaciones, pendientes, omitidos ni gemelos para C", () => {
+  const leg = loggedSession(b,sunday,5);
+  leg.exercises[0].warmupSets[0].completed = true;
+  leg.exercises[0].workingSets[0].weight = "40";
+  leg.exercises[1].workingSets[0].completed = true;
+  leg.exercises[1].status = "skipped";
+  api.setState({...api.defaults(),history:[leg]});
+  assert.equal(api.recoveryPlan(c,sunday+hour).overlap,null);
+  for (const day of [a,b,c,d]) for (const ex of day.exercises) assert.ok(api.musclesFor(ex.id).length,ex.name);
+  assert.deepEqual(plain(api.musclesFor(d.exercises.at(-1).id,"Gemelos")),["gemelos"]);
+  assert.deepEqual(plain(api.musclesFor(d.exercises.at(-1).id,"Abdominales")),["abdominales"]);
+});
+check("Cuatro semanas desde el inicio del 3+1; al omitir D sigue contando C y no cambia el historial", () => {
+  const full = loggedSession(c,sunday,1);
+  const old = loggedSession(day("push"),sunday-80*24*hour,0);
+  api.setState({...api.defaults(),history:[full,old]});
+  const history = JSON.stringify(api.getState().history);
+  const start = Date.parse(full.startedAt);
+  assert.equal(api.recoveryPlan(d,start+28*24*hour-1).intro,true);
+  assert.equal(api.recoveryPlan(d,start+28*24*hour).intro,false);
+  api.skipOptional();
+  assert.equal(api.cycleState().next.id,a.id);
+  assert.equal(api.recoveryPlan(a,sunday+hour).overlap.session,full.dayName);
+  assert.equal(JSON.stringify(api.getState().history),history);
+});
+check("Una parcial sin solapamiento no oculta la última serie coincidente, incluso en un historial antiguo", () => {
+  const last = loggedSession(b,sunday,5), prior = loggedSession(day("upper"),sunday-40*hour,0);
+  api.setState({...api.defaults(),history:[last,prior]});
+  assert.equal(api.recoveryPlan(c,sunday+hour).overlap.at,sunday-40*hour);
+  assert.equal(api.cycleState().next.id,c.id);
+});
+// Solo lectura: los archivos opcionales se comparan en memoria y nunca se escriben.
+for (const [i, file] of process.argv.slice(2).entries()) {
+  const raw = readFileSync(file, "utf8").replace(/^\uFEFF/,"");
+  const original = JSON.parse(raw);
+  check(`Exportación de prueba ${i+1}, V${original.schemaVersion}, ${original.history.length} sesiones`, () => {
+    const imported = api.storage.import(raw);
+    const roundtrip = api.storage.import(api.storage.export(imported));
+    assert.deepEqual(plain(roundtrip), plain(imported));
+    assert.equal(roundtrip.history.length,original.history.length);
+    if (original.schemaVersion >= 3) assert.deepEqual(plain(roundtrip.history),original.history);
+    for (const [j, session] of original.history.entries()) {
+      const actual = roundtrip.history[j];
+      for (const key of ["id","dayId","dayName","startedAt","finishedAt"]) assert.equal(actual[key],session[key]);
+      assert.equal(actual.exercises.length,session.exercises.length);
+      for (const [k, ex] of session.exercises.entries()) {
+        const migratedEx = actual.exercises[k];
+        assert.equal(migratedEx.id, ex.id);
+        assert.equal(migratedEx.name, ex.name);
+        const oldSets = ex.sets || ex.workingSets;
+        assert.equal(migratedEx.workingSets.length,oldSets.length);
+        for (const [n,set] of oldSets.entries()) {
+          for (const key of Object.keys(set)) assert.deepEqual(plain(migratedEx.workingSets[n][key]), set[key]);
+        }
+      }
+    }
+    assert.equal(roundtrip.activeSession?.id,original.activeSession?.id);
+  });
+}
 api.stopTimer(false);
+assert.deepEqual(consoleErrors,[]);
 console.log(results.join("\n"));
-console.log(`\n${results.length} comprobaciones V3 superadas.`);
+console.log(`\n${results.length} comprobaciones superadas.`);
